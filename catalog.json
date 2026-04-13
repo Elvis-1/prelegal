@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Mutual Non-Disclosure Agreement",
+    "description": "Standard terms for a mutual NDA allowing each party to share confidential information for a defined purpose. Covers use restrictions, exceptions, term, and governing law.",
+    "filename": "templates/Mutual-NDA.md"
+  },
+  {
+    "name": "Mutual Non-Disclosure Agreement Cover Page",
+    "description": "Cover page template for the Common Paper Mutual NDA, used to fill in party details, purpose, effective date, term, and governing law before signing.",
+    "filename": "templates/Mutual-NDA-coverpage.md"
+  },
+  {
+    "name": "Cloud Service Agreement",
+    "description": "Comprehensive agreement for cloud-based SaaS products covering service access, restrictions, privacy, payment, term, warranties, liability, indemnification, and confidentiality.",
+    "filename": "templates/CSA.md"
+  },
+  {
+    "name": "Design Partner Agreement",
+    "description": "Agreement for early-access design partner programs, covering product access, feedback obligations, IP ownership, confidentiality, and disclaimer of warranties.",
+    "filename": "templates/design-partner-agreement.md"
+  },
+  {
+    "name": "Service Level Agreement",
+    "description": "SLA standard terms defining uptime and response time targets, how to calculate availability, service credits for failures, and remedies including termination rights.",
+    "filename": "templates/sla.md"
+  },
+  {
+    "name": "Professional Services Agreement",
+    "description": "Agreement governing professional services engagements including SOW-based delivery, IP assignment for deliverables, payment, confidentiality, indemnification, and insurance.",
+    "filename": "templates/psa.md"
+  },
+  {
+    "name": "Data Processing Agreement",
+    "description": "GDPR-compliant DPA covering processor/subprocessor relationships, processing instructions, restricted international transfers (EEA SCCs and UK Addendum), security incidents, and audit rights.",
+    "filename": "templates/DPA.md"
+  },
+  {
+    "name": "Partnership Agreement",
+    "description": "Standard terms for business partnerships covering mutual obligations, trademark licensing, payment, escalation procedures, confidentiality, indemnification, and liability.",
+    "filename": "templates/Partnership-Agreement.md"
+  },
+  {
+    "name": "Software License Agreement",
+    "description": "Agreement for on-premise software licensing covering license grant, restrictions, payment, updates, warranties, limitation of liability, indemnification, and confidentiality.",
+    "filename": "templates/Software-License-Agreement.md"
+  },
+  {
+    "name": "Pilot Agreement",
+    "description": "Short-term pilot/trial agreement for evaluating a product before a full commercial agreement, covering access, restrictions, confidentiality, and limited liability.",
+    "filename": "templates/Pilot-Agreement.md"
+  },
+  {
+    "name": "Business Associate Agreement",
+    "description": "HIPAA-compliant BAA governing the handling of Protected Health Information (PHI) by a business associate, including safeguards, breach notification, subcontractors, and audit rights.",
+    "filename": "templates/BAA.md"
+  },
+  {
+    "name": "AI Addendum",
+    "description": "Addendum to a base agreement covering AI/ML service usage, input/output ownership, model training restrictions, non-training improvement rights, and AI-specific disclaimers.",
+    "filename": "templates/AI-Addendum.md"
+  }
+]
