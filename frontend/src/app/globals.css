@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Print: hide chrome, keep document in normal flow for correct multi-page output */
+@media print {
+  header,
+  aside {
+    display: none !important;
+  }
+  main {
+    overflow: visible !important;
+    height: auto !important;
+  }
+  body,
+  html {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+  #nda-document {
+    box-shadow: none !important;
+    margin: 0 auto !important;
+    padding: 0.75in !important;
+    max-width: none !important;
+  }
+}
