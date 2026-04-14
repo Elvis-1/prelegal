@@ -8,6 +8,15 @@ The available documents are covered in the catalog.json file in the project root
 
 @catalog.json
 
+## Current Status
+
+**PL-4 complete (merged via PR #5).** The V1 technical foundation is in place:
+- FastAPI backend (`backend/`) — uv project, SQLite auth (signup/login with JWT), DB created fresh each container start
+- Next.js frontend (`frontend/`) — static export served by FastAPI at http://localhost:8000
+- Docker — multi-stage `Dockerfile` + `docker-compose.yml`
+- Scripts — `scripts/start-mac.sh` / `scripts/stop-mac.sh` (and Linux/Windows equivalents)
+- Product feature implemented so far: Mutual NDA form + live preview (PL-3)
+
 The current implementation supports all 11 document types via AI chat with full user authentication and document persistence.
 
 ## Development process
