@@ -24,11 +24,13 @@ RUN uv pip install --system --no-cache \
     "uvicorn[standard]>=0.30.0" \
     "sqlalchemy>=2.0.0" \
     "passlib[bcrypt]>=1.7.4" \
+    "bcrypt>=3.2.0,<4.0.0" \
     "python-jose[cryptography]>=3.3.0" \
     "python-multipart>=0.0.9" \
     "pydantic>=2.0.0" \
     "pydantic-settings>=2.0.0" \
-    "email-validator>=2.0.0"
+    "email-validator>=2.0.0" \
+    "litellm>=1.40.0"
 
 # Copy backend source
 COPY backend/ .
