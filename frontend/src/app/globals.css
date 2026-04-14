@@ -2,22 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Print: show only the NDA document, hide all chrome */
+/* Print: hide chrome, keep document in normal flow for correct multi-page output */
 @media print {
-  body * {
-    visibility: hidden;
+  header,
+  aside {
+    display: none !important;
   }
-  #nda-document,
-  #nda-document * {
-    visibility: visible;
+  main {
+    overflow: visible !important;
+    height: auto !important;
+  }
+  body,
+  html {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
   }
   #nda-document {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
     box-shadow: none !important;
-    margin: 0 !important;
+    margin: 0 auto !important;
     padding: 0.75in !important;
+    max-width: none !important;
   }
 }

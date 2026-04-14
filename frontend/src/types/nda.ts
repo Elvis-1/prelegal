@@ -19,6 +19,14 @@ export interface NDAFormData {
   party2: PartyDetails;
 }
 
+/** Returns e.g. "1 year" or "3 years". Returns "" for empty/invalid input. */
+export function pluralYears(n: string): string {
+  if (!n.trim()) return '';
+  const count = parseInt(n, 10);
+  if (isNaN(count) || count <= 0) return '';
+  return `${count} year${count !== 1 ? 's' : ''}`;
+}
+
 export const initialFormData: NDAFormData = {
   purpose: '',
   effectiveDate: new Date().toISOString().split('T')[0],

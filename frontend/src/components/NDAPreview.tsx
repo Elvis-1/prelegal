@@ -1,6 +1,6 @@
 'use client';
 
-import { NDAFormData } from '@/types/nda';
+import { NDAFormData, pluralYears } from '@/types/nda';
 
 interface Props {
   data: NDAFormData;
@@ -20,21 +20,24 @@ function Val({ value, placeholder }: { value: string; placeholder: string }) {
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return '';
-  const [year, month, day] = dateStr.split('-').map(Number);
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return '';
+  const [year, month, day] = parts;
   const d = new Date(year, month - 1, day);
+  if (isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 function getMndaTerm(data: NDAFormData): string {
   if (data.mndaTermType === 'continues') return 'continues until terminated';
-  const y = data.mndaTermYears || '1';
-  return `${y} year${parseInt(y) !== 1 ? 's' : ''} from Effective Date`;
+  const y = pluralYears(data.mndaTermYears);
+  return y ? `${y} from Effective Date` : '';
 }
 
 function getConfidentialityTerm(data: NDAFormData): string {
   if (data.confidentialityTermType === 'perpetuity') return 'in perpetuity';
-  const y = data.confidentialityTermYears || '1';
-  return `${y} year${parseInt(y) !== 1 ? 's' : ''} from Effective Date`;
+  const y = pluralYears(data.confidentialityTermYears);
+  return y ? `${y} from Effective Date` : '';
 }
 
 function Divider() {
@@ -42,12 +45,9 @@ function Divider() {
 }
 
 export default function NDAPreview({ data }: Props) {
-  const purpose = data.purpose;
   const effectiveDate = formatDate(data.effectiveDate);
   const mndaTerm = getMndaTerm(data);
   const confidentialityTerm = getConfidentialityTerm(data);
-  const governingLaw = data.governingLaw;
-  const jurisdiction = data.jurisdiction;
 
   const P = ({ children }: { children: React.ReactNode }) => (
     <p className="mb-4 text-justify leading-relaxed">{children}</p>
@@ -89,7 +89,7 @@ export default function NDAPreview({ data }: Props) {
             <h3 className="font-bold text-sm uppercase tracking-wide mb-1">Purpose</h3>
             <p className="text-xs text-gray-500 mb-1">How Confidential Information may be used</p>
             <p>
-              <Val value={purpose} placeholder="Purpose — how Confidential Information may be used" />
+              <Val value={data.purpose} placeholder="Purpose — how Confidential Information may be used" />
             </p>
           </div>
 
@@ -105,36 +105,23 @@ export default function NDAPreview({ data }: Props) {
           <div>
             <h3 className="font-bold text-sm uppercase tracking-wide mb-1">MNDA Term</h3>
             <p className="text-xs text-gray-500 mb-1">The length of this MNDA</p>
-            {data.mndaTermType === 'expires' ? (
-              <p>
-                Expires{' '}
-                <Val
-                  value={data.mndaTermYears ? `${data.mndaTermYears} year${parseInt(data.mndaTermYears) !== 1 ? 's' : ''}` : ''}
-                  placeholder="N year(s)"
-                />{' '}
-                from Effective Date.
-              </p>
-            ) : (
-              <p>Continues until terminated in accordance with the terms of the MNDA.</p>
-            )}
+            <p>
+              <Val value={mndaTerm} placeholder="MNDA Term" />
+              {mndaTerm && '.'}
+            </p>
           </div>
 
           {/* Term of Confidentiality */}
           <div>
             <h3 className="font-bold text-sm uppercase tracking-wide mb-1">Term of Confidentiality</h3>
             <p className="text-xs text-gray-500 mb-1">How long Confidential Information is protected</p>
-            {data.confidentialityTermType === 'perpetuity' ? (
-              <p>In perpetuity.</p>
-            ) : (
-              <p>
-                <Val
-                  value={data.confidentialityTermYears ? `${data.confidentialityTermYears} year${parseInt(data.confidentialityTermYears) !== 1 ? 's' : ''}` : ''}
-                  placeholder="N year(s)"
-                />{' '}
-                from Effective Date, but in the case of trade secrets until Confidential
-                Information is no longer considered a trade secret under applicable laws.
-              </p>
-            )}
+            <p>
+              <Val value={confidentialityTerm} placeholder="Term of Confidentiality" />
+              {data.confidentialityTermType !== 'perpetuity' && confidentialityTerm && (
+                <>, but in the case of trade secrets until Confidential Information is no
+                longer considered a trade secret under applicable laws.</>
+              )}
+            </p>
           </div>
 
           {/* Governing Law */}
@@ -142,11 +129,11 @@ export default function NDAPreview({ data }: Props) {
             <h3 className="font-bold text-sm uppercase tracking-wide mb-1">Governing Law &amp; Jurisdiction</h3>
             <p>
               <span className="font-semibold">Governing Law:</span>{' '}
-              <Val value={governingLaw} placeholder="State" />
+              <Val value={data.governingLaw} placeholder="State" />
             </p>
             <p className="mt-1">
               <span className="font-semibold">Jurisdiction:</span>{' '}
-              <Val value={jurisdiction} placeholder="City or county and state" />
+              <Val value={data.jurisdiction} placeholder="City or county and state" />
             </p>
           </div>
 
@@ -248,7 +235,7 @@ export default function NDAPreview({ data }: Props) {
           <strong>1. Introduction.</strong> This Mutual Non-Disclosure Agreement (which incorporates
           these Standard Terms and the Cover Page (defined below)) (&ldquo;<strong>MNDA</strong>&rdquo;) allows
           each party (&ldquo;<strong>Disclosing Party</strong>&rdquo;) to disclose or make available information
-          in connection with the <Val value={purpose} placeholder="Purpose" /> which (1) the
+          in connection with the <Val value={data.purpose} placeholder="Purpose" /> which (1) the
           Disclosing Party identifies to the receiving party (&ldquo;<strong>Receiving Party</strong>&rdquo;) as
           &ldquo;confidential&rdquo;, &ldquo;proprietary&rdquo;, or the like or (2) should be reasonably understood
           as confidential or proprietary due to its nature and the circumstances of its disclosure
@@ -265,11 +252,11 @@ export default function NDAPreview({ data }: Props) {
         <P>
           <strong>2. Use and Protection of Confidential Information.</strong> The Receiving Party
           shall: (a) use Confidential Information solely for the{' '}
-          <Val value={purpose} placeholder="Purpose" />; (b) not disclose Confidential Information
+          <Val value={data.purpose} placeholder="Purpose" />; (b) not disclose Confidential Information
           to third parties without the Disclosing Party&rsquo;s prior written approval, except that the
           Receiving Party may disclose Confidential Information to its employees, agents, advisors,
           contractors and other representatives having a reasonable need to know for the{' '}
-          <Val value={purpose} placeholder="Purpose" />, provided these representatives are bound by
+          <Val value={data.purpose} placeholder="Purpose" />, provided these representatives are bound by
           confidentiality obligations no less protective of the Disclosing Party than the applicable
           terms in this MNDA and the Receiving Party remains responsible for their compliance with
           this MNDA; and (c) protect Confidential Information using at least the same protections
@@ -333,13 +320,13 @@ export default function NDAPreview({ data }: Props) {
         <P>
           <strong>9. Governing Law and Jurisdiction.</strong> This MNDA and all matters relating
           hereto are governed by, and construed in accordance with, the laws of the State of{' '}
-          <Val value={governingLaw} placeholder="Governing Law" />, without regard to the conflict
+          <Val value={data.governingLaw} placeholder="Governing Law" />, without regard to the conflict
           of laws provisions of such{' '}
-          <Val value={governingLaw} placeholder="Governing Law" />. Any legal suit, action, or
+          <Val value={data.governingLaw} placeholder="Governing Law" />. Any legal suit, action, or
           proceeding relating to this MNDA must be instituted in the federal or state{' '}
-          <Val value={jurisdiction} placeholder="Jurisdiction" />. Each party irrevocably submits
+          <Val value={data.jurisdiction} placeholder="Jurisdiction" />. Each party irrevocably submits
           to the exclusive jurisdiction of such{' '}
-          <Val value={jurisdiction} placeholder="Jurisdiction" /> in any such suit, action, or
+          <Val value={data.jurisdiction} placeholder="Jurisdiction" /> in any such suit, action, or
           proceeding.
         </P>
 
