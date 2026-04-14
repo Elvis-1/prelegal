@@ -28,7 +28,8 @@ RUN uv pip install --system --no-cache \
     "python-multipart>=0.0.9" \
     "pydantic>=2.0.0" \
     "pydantic-settings>=2.0.0" \
-    "email-validator>=2.0.0"
+    "email-validator>=2.0.0" \
+    "litellm>=1.40.0"
 
 # Copy backend source
 COPY backend/ .
