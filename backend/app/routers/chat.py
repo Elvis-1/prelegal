@@ -8,56 +8,14 @@ from pydantic import BaseModel
 
 from app.auth import get_current_user
 from app.config import settings
-from app.schemas import ChatRequest, ChatResponse, NDAFields, PartyFields
+from app.documents import REGISTRY, SUPPORTED_NAMES, DocumentSpec
+from app.schemas import ChatRequest, ChatResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 MODEL = "groq/llama-3.3-70b-versatile"
-
-SYSTEM_PROMPT = """You are a friendly legal assistant helping users fill in a Mutual Non-Disclosure Agreement (MNDA).
-
-Your goal is to collect all required fields through natural, professional conversation. Ask about 1-2 related fields at a time. Briefly explain what each field means if it might be unclear.
-
-Fields to collect:
-- purpose: What confidential information will be used for (e.g. "evaluating a potential partnership")
-- effectiveDate: Start date (YYYY-MM-DD format)
-- mndaTermType: "expires" (fixed duration) or "continues" (until terminated)
-- mndaTermYears: Number of years as a string (only if mndaTermType is "expires")
-- confidentialityTermType: "years" (time-limited) or "perpetuity" (forever)
-- confidentialityTermYears: Number of years as a string (only if confidentialityTermType is "years")
-- governingLaw: US state whose laws govern the agreement
-- jurisdiction: City/county and state for courts (e.g. "New Castle, DE")
-- modifications: Any changes to standard terms — if none, use "None."
-- party1.company, party1.name, party1.title, party1.noticeAddress
-- party2.company, party2.name, party2.title, party2.noticeAddress
-
-RESPONSE FORMAT — always respond with valid JSON only, no markdown:
-{
-  "reply": "Your conversational message",
-  "fields": {
-    "purpose": "",
-    "effectiveDate": "",
-    "mndaTermType": "expires",
-    "mndaTermYears": "1",
-    "confidentialityTermType": "years",
-    "confidentialityTermYears": "1",
-    "governingLaw": "",
-    "jurisdiction": "",
-    "modifications": "",
-    "party1": {"company": "", "name": "", "title": "", "noticeAddress": ""},
-    "party2": {"company": "", "name": "", "title": "", "noticeAddress": ""}
-  },
-  "is_complete": false
-}
-
-Rules:
-- In "fields", carry forward ALL currently known values plus any new values extracted from the user's message.
-- Set "is_complete" to true only when every field has a non-empty value (modifications may be "None.").
-- When is_complete is true, congratulate the user and tell them to download the PDF using the button above.
-- Never ask for information already provided.
-- Use a warm, professional tone."""
 
 
 class LLMResponse(BaseModel):
@@ -66,58 +24,43 @@ class LLMResponse(BaseModel):
     is_complete: bool
 
 
-def _fields_to_dict(fields: NDAFields) -> dict:
-    return {
-        "purpose": fields.purpose,
-        "effectiveDate": fields.effectiveDate,
-        "mndaTermType": fields.mndaTermType,
-        "mndaTermYears": fields.mndaTermYears,
-        "confidentialityTermType": fields.confidentialityTermType,
-        "confidentialityTermYears": fields.confidentialityTermYears,
-        "governingLaw": fields.governingLaw,
-        "jurisdiction": fields.jurisdiction,
-        "modifications": fields.modifications,
-        "party1": {
-            "company": fields.party1.company,
-            "name": fields.party1.name,
-            "title": fields.party1.title,
-            "noticeAddress": fields.party1.noticeAddress,
-        },
-        "party2": {
-            "company": fields.party2.company,
-            "name": fields.party2.name,
-            "title": fields.party2.title,
-            "noticeAddress": fields.party2.noticeAddress,
-        },
-    }
+def _build_system_prompt(spec: DocumentSpec, current_fields: dict[str, str]) -> str:
+    required = [f for f in spec.fields if not f.optional]
+    optional = [f for f in spec.fields if f.optional]
 
-
-def _dict_to_fields(data: dict) -> NDAFields:
-    p1 = data.get("party1", {})
-    p2 = data.get("party2", {})
-    return NDAFields(
-        purpose=data.get("purpose", ""),
-        effectiveDate=data.get("effectiveDate", ""),
-        mndaTermType=data.get("mndaTermType", "expires"),
-        mndaTermYears=data.get("mndaTermYears", "1"),
-        confidentialityTermType=data.get("confidentialityTermType", "years"),
-        confidentialityTermYears=data.get("confidentialityTermYears", "1"),
-        governingLaw=data.get("governingLaw", ""),
-        jurisdiction=data.get("jurisdiction", ""),
-        modifications=data.get("modifications", ""),
-        party1=PartyFields(
-            company=p1.get("company", ""),
-            name=p1.get("name", ""),
-            title=p1.get("title", ""),
-            noticeAddress=p1.get("noticeAddress", ""),
-        ),
-        party2=PartyFields(
-            company=p2.get("company", ""),
-            name=p2.get("name", ""),
-            title=p2.get("title", ""),
-            noticeAddress=p2.get("noticeAddress", ""),
-        ),
+    required_lines = "\n".join(
+        f"- {f.key} ({f.label}): {f.description}" for f in required
     )
+    optional_lines = (
+        "\nOptional fields (collect if relevant, skip if not applicable):\n"
+        + "\n".join(f"- {f.key} ({f.label}): {f.description}" for f in optional)
+        if optional
+        else ""
+    )
+
+    initial_fields_json = json.dumps(current_fields, indent=2)
+
+    return f"""You are a friendly legal assistant helping users fill in a {spec.name}.
+
+Your goal is to collect all required fields through natural, professional conversation. Ask about 1-2 related fields at a time, and briefly explain each field if it might be unclear.
+
+Fields to collect:
+{required_lines}{optional_lines}
+
+RESPONSE FORMAT — always respond with valid JSON only, no markdown fences:
+{{
+  "reply": "Your conversational message to the user",
+  "fields": {initial_fields_json},
+  "is_complete": false
+}}
+
+Rules:
+- In "fields", always carry forward ALL currently known values PLUS any new values extracted from the user's latest message.
+- Set "is_complete" to true only when every required field has a non-empty value.
+- When is_complete is true, congratulate the user and tell them they can download the document using the button above.
+- Never ask for information already provided.
+- If the user asks you to generate a document that is not a {spec.name}, politely explain that it is not currently supported and suggest the closest available option from: {SUPPORTED_NAMES}.
+- Use a warm, professional tone."""
 
 
 @router.post("/message", response_model=ChatResponse)
@@ -128,14 +71,21 @@ def chat_message(request: ChatRequest, _user=Depends(get_current_user)):
             detail="AI service not configured",
         )
 
-    current_fields_dict = _fields_to_dict(request.current_fields)
+    spec = REGISTRY.get(request.document_type)
+    if not spec:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported document type '{request.document_type}'. Supported types: {list(REGISTRY.keys())}",
+        )
+
+    # Merge incoming fields with spec defaults so any missing keys are initialised
+    current = {**spec.initial_fields(), **request.current_fields}
+
+    system_prompt = _build_system_prompt(spec, current)
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {
-            "role": "system",
-            "content": f"Current NDA fields: {json.dumps(current_fields_dict)}",
-        },
+        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": f"Current document fields: {json.dumps(current)}"},
     ]
     for msg in request.messages:
         messages.append({"role": msg.role, "content": msg.content})
@@ -160,9 +110,16 @@ def chat_message(request: ChatRequest, _user=Depends(get_current_user)):
             detail="AI service error — please try again",
         )
 
-    updated_fields = _dict_to_fields(parsed.fields)
+    # Normalise: ensure all values are strings, carry forward defaults for missing keys
+    returned_fields: dict[str, str] = {
+        k: str(v) if v is not None else ""
+        for k, v in parsed.fields.items()
+    }
+    # Fill in any keys the LLM omitted
+    merged = {**spec.initial_fields(), **returned_fields}
+
     return ChatResponse(
         reply=parsed.reply,
-        fields=updated_fields,
+        fields=merged,
         is_complete=parsed.is_complete,
     )
