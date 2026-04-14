@@ -1,13 +1,16 @@
-"""Tests for the AI chat endpoint."""
+"""Tests for the AI chat endpoint and document registry."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user
+from app.documents import REGISTRY, DocumentSpec
 from app.main import app
 from app.models import User
+from app.routers.chat import _build_system_prompt
 
 
 def _make_user():
@@ -17,20 +20,8 @@ def _make_user():
     return user
 
 
-def _default_fields():
-    return {
-        "purpose": "",
-        "effectiveDate": "",
-        "mndaTermType": "expires",
-        "mndaTermYears": "1",
-        "confidentialityTermType": "years",
-        "confidentialityTermYears": "1",
-        "governingLaw": "",
-        "jurisdiction": "",
-        "modifications": "",
-        "party1": {"company": "", "name": "", "title": "", "noticeAddress": ""},
-        "party2": {"company": "", "name": "", "title": "", "noticeAddress": ""},
-    }
+def _empty_fields(doc_type: str) -> dict:
+    return REGISTRY[doc_type].initial_fields()
 
 
 @pytest.fixture()
@@ -46,53 +37,78 @@ def auth_client():
     app.dependency_overrides.clear()
 
 
-# ── Unit tests for helper functions ──────────────────────────────────────────
+# ── Document registry tests ───────────────────────────────────────────────────
 
-def test_fields_to_dict_roundtrip():
-    from app.routers.chat import _dict_to_fields, _fields_to_dict
-    from app.schemas import NDAFields, PartyFields
-
-    original = NDAFields(
-        purpose="Evaluating partnership",
-        effectiveDate="2026-04-14",
-        mndaTermType="expires",
-        mndaTermYears="2",
-        confidentialityTermType="perpetuity",
-        confidentialityTermYears="1",
-        governingLaw="Delaware",
-        jurisdiction="New Castle, DE",
-        modifications="None.",
-        party1=PartyFields(company="Acme", name="Jane", title="CEO", noticeAddress="jane@acme.com"),
-        party2=PartyFields(company="Beta", name="Bob", title="CTO", noticeAddress="bob@beta.com"),
-    )
-
-    as_dict = _fields_to_dict(original)
-    restored = _dict_to_fields(as_dict)
-
-    assert restored.purpose == original.purpose
-    assert restored.governingLaw == original.governingLaw
-    assert restored.party1.company == original.party1.company
-    assert restored.party2.name == original.party2.name
-    assert restored.confidentialityTermType == original.confidentialityTermType
+def test_registry_has_all_document_types():
+    expected = {
+        "mutual-nda", "csa", "design-partner", "sla", "psa",
+        "dpa", "partnership", "software-license", "pilot", "baa", "ai-addendum",
+    }
+    assert set(REGISTRY.keys()) == expected
 
 
-def test_dict_to_fields_handles_missing_keys():
-    from app.routers.chat import _dict_to_fields
-
-    result = _dict_to_fields({})
-    assert result.purpose == ""
-    assert result.mndaTermType == "expires"
-    assert result.party1.company == ""
-    assert result.party2.noticeAddress == ""
+def test_all_specs_have_fields():
+    for key, spec in REGISTRY.items():
+        assert len(spec.fields) > 0, f"{key} has no fields"
 
 
-# ── Integration tests for the chat endpoint ──────────────────────────────────
+def test_initial_fields_are_strings():
+    for key, spec in REGISTRY.items():
+        for field_key, value in spec.initial_fields().items():
+            assert isinstance(value, str), f"{key}.{field_key} default is not a string"
 
-class TestChatMessageEndpoint:
+
+def test_all_specs_have_party_fields():
+    """Every document type should collect both party details."""
+    for key, spec in REGISTRY.items():
+        keys = {f.key for f in spec.fields}
+        assert "party1_company" in keys, f"{key} missing party1_company"
+        assert "party2_company" in keys, f"{key} missing party2_company"
+
+
+def test_system_prompt_includes_all_field_keys():
+    for key, spec in REGISTRY.items():
+        fields = spec.initial_fields()
+        prompt = _build_system_prompt(spec, fields)
+        for f in spec.fields:
+            assert f.key in prompt, f"System prompt for {key} missing field key '{f.key}'"
+
+
+def test_system_prompt_mentions_document_name():
+    spec = REGISTRY["mutual-nda"]
+    prompt = _build_system_prompt(spec, spec.initial_fields())
+    assert "Mutual Non-Disclosure Agreement" in prompt
+
+
+# ── Catalog endpoint ──────────────────────────────────────────────────────────
+
+def test_catalog_returns_all_document_types(client):
+    res = client.get("/api/catalog")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) == len(REGISTRY)
+    keys = {entry["key"] for entry in data}
+    assert "mutual-nda" in keys
+    assert "csa" in keys
+    assert "baa" in keys
+
+
+def test_catalog_entries_have_required_fields(client):
+    res = client.get("/api/catalog")
+    for entry in res.json():
+        assert "key" in entry
+        assert "name" in entry
+        assert "description" in entry
+        assert entry["name"]  # non-empty
+
+
+# ── Chat endpoint — auth and validation ──────────────────────────────────────
+
+class TestChatAuth:
     def test_requires_auth(self, client):
         res = client.post(
             "/api/chat/message",
-            json={"messages": [], "current_fields": _default_fields()},
+            json={"document_type": "mutual-nda", "messages": [], "current_fields": {}},
         )
         assert res.status_code in (401, 403)
 
@@ -100,7 +116,7 @@ class TestChatMessageEndpoint:
         res = client.post(
             "/api/chat/message",
             headers={"Authorization": "Bearer not-a-real-token"},
-            json={"messages": [], "current_fields": _default_fields()},
+            json={"document_type": "mutual-nda", "messages": [], "current_fields": {}},
         )
         assert res.status_code == 401
 
@@ -109,42 +125,87 @@ class TestChatMessageEndpoint:
             mock_settings.groq_api_key = ""
             res = auth_client.post(
                 "/api/chat/message",
-                json={"messages": [], "current_fields": _default_fields()},
+                json={"document_type": "mutual-nda", "messages": [], "current_fields": {}},
             )
         assert res.status_code == 503
 
-    def test_successful_response(self, auth_client):
-        llm_payload = (
-            '{"reply": "Hello! What is the purpose of this NDA?", '
-            '"fields": {"purpose": "", "effectiveDate": "", "mndaTermType": "expires", '
-            '"mndaTermYears": "1", "confidentialityTermType": "years", '
-            '"confidentialityTermYears": "1", "governingLaw": "", "jurisdiction": "", '
-            '"modifications": "", '
-            '"party1": {"company": "", "name": "", "title": "", "noticeAddress": ""}, '
-            '"party2": {"company": "", "name": "", "title": "", "noticeAddress": ""}}, '
-            '"is_complete": false}'
-        )
-
-        mock_choice = MagicMock()
-        mock_choice.message.content = llm_payload
-        mock_response = MagicMock()
-        mock_response.choices = [mock_choice]
-
-        with (
-            patch("app.routers.chat.settings") as mock_settings,
-            patch("app.routers.chat.completion", return_value=mock_response),
-        ):
+    def test_unknown_document_type_returns_400(self, auth_client):
+        with patch("app.routers.chat.settings") as mock_settings:
             mock_settings.groq_api_key = "sk-test"
             res = auth_client.post(
                 "/api/chat/message",
-                json={"messages": [], "current_fields": _default_fields()},
+                json={"document_type": "employment-contract", "messages": [], "current_fields": {}},
             )
+        assert res.status_code == 400
+        assert "employment-contract" in res.json()["detail"]
+
+
+# ── Chat endpoint — successful responses ──────────────────────────────────────
+
+def _mock_llm(reply: str, fields: dict, is_complete: bool = False):
+    """Return a mock LiteLLM completion object with the given payload."""
+    payload = json.dumps({"reply": reply, "fields": fields, "is_complete": is_complete})
+    mock_choice = MagicMock()
+    mock_choice.message.content = payload
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    return mock_response
+
+
+def _post_chat(auth_client, doc_type: str, llm_response, messages=None, fields=None):
+    with (
+        patch("app.routers.chat.settings") as mock_settings,
+        patch("app.routers.chat.completion", return_value=llm_response),
+    ):
+        mock_settings.groq_api_key = "sk-test"
+        return auth_client.post(
+            "/api/chat/message",
+            json={
+                "document_type": doc_type,
+                "messages": messages or [],
+                "current_fields": fields or {},
+            },
+        )
+
+
+class TestChatResponses:
+    def test_successful_nda_response(self, auth_client):
+        fields = _empty_fields("mutual-nda")
+        mock_resp = _mock_llm("Hello! What is the purpose of this NDA?", fields)
+        res = _post_chat(auth_client, "mutual-nda", mock_resp)
 
         assert res.status_code == 200
         body = res.json()
         assert body["reply"] == "Hello! What is the purpose of this NDA?"
         assert body["is_complete"] is False
         assert "fields" in body
+
+    def test_successful_csa_response(self, auth_client):
+        fields = _empty_fields("csa")
+        mock_resp = _mock_llm("Let's start with the subscription period.", fields)
+        res = _post_chat(auth_client, "csa", mock_resp)
+
+        assert res.status_code == 200
+        assert res.json()["reply"] == "Let's start with the subscription period."
+
+    def test_fields_merged_in_response(self, auth_client):
+        initial = _empty_fields("mutual-nda")
+        returned = {**initial, "purpose": "Evaluating a partnership", "governingLaw": "Delaware"}
+        mock_resp = _mock_llm("Got it. Who are the parties?", returned)
+        res = _post_chat(auth_client, "mutual-nda", mock_resp, fields=initial)
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["fields"]["purpose"] == "Evaluating a partnership"
+        assert body["fields"]["governingLaw"] == "Delaware"
+
+    def test_is_complete_true_when_llm_says_so(self, auth_client):
+        filled = {k: "filled value" for k in _empty_fields("pilot")}
+        mock_resp = _mock_llm("Your pilot agreement is complete!", filled, is_complete=True)
+        res = _post_chat(auth_client, "pilot", mock_resp)
+
+        assert res.status_code == 200
+        assert res.json()["is_complete"] is True
 
     def test_llm_exception_returns_502(self, auth_client):
         with (
@@ -154,180 +215,89 @@ class TestChatMessageEndpoint:
             mock_settings.groq_api_key = "sk-test"
             res = auth_client.post(
                 "/api/chat/message",
-                json={"messages": [], "current_fields": _default_fields()},
+                json={"document_type": "mutual-nda", "messages": [], "current_fields": {}},
             )
         assert res.status_code == 502
-
-    def test_extracted_fields_in_response(self, auth_client):
-        llm_payload = (
-            '{"reply": "Got it. Who are the parties?", '
-            '"fields": {"purpose": "Evaluating partnership", "effectiveDate": "2026-04-14", '
-            '"mndaTermType": "expires", "mndaTermYears": "1", '
-            '"confidentialityTermType": "years", "confidentialityTermYears": "1", '
-            '"governingLaw": "", "jurisdiction": "", "modifications": "", '
-            '"party1": {"company": "", "name": "", "title": "", "noticeAddress": ""}, '
-            '"party2": {"company": "", "name": "", "title": "", "noticeAddress": ""}}, '
-            '"is_complete": false}'
-        )
-
-        mock_choice = MagicMock()
-        mock_choice.message.content = llm_payload
-        mock_response = MagicMock()
-        mock_response.choices = [mock_choice]
-
-        with (
-            patch("app.routers.chat.settings") as mock_settings,
-            patch("app.routers.chat.completion", return_value=mock_response),
-        ):
-            mock_settings.groq_api_key = "sk-test"
-            res = auth_client.post(
-                "/api/chat/message",
-                json={
-                    "messages": [{"role": "user", "content": "evaluating a partnership"}],
-                    "current_fields": _default_fields(),
-                },
-            )
-
-        assert res.status_code == 200
-        body = res.json()
-        assert body["fields"]["purpose"] == "Evaluating partnership"
-
-    def test_is_complete_true_when_all_fields_filled(self, auth_client):
-        llm_payload = (
-            '{"reply": "Your NDA is complete! Download it above.", '
-            '"fields": {"purpose": "Evaluating partnership", "effectiveDate": "2026-04-14", '
-            '"mndaTermType": "expires", "mndaTermYears": "2", '
-            '"confidentialityTermType": "years", "confidentialityTermYears": "3", '
-            '"governingLaw": "Delaware", "jurisdiction": "New Castle, DE", '
-            '"modifications": "None.", '
-            '"party1": {"company": "Acme", "name": "Jane", "title": "CEO", "noticeAddress": "jane@acme.com"}, '
-            '"party2": {"company": "Beta", "name": "Bob", "title": "CTO", "noticeAddress": "bob@beta.com"}}, '
-            '"is_complete": true}'
-        )
-
-        mock_choice = MagicMock()
-        mock_choice.message.content = llm_payload
-        mock_response = MagicMock()
-        mock_response.choices = [mock_choice]
-
-        with (
-            patch("app.routers.chat.settings") as mock_settings,
-            patch("app.routers.chat.completion", return_value=mock_response),
-        ):
-            mock_settings.groq_api_key = "sk-test"
-            res = auth_client.post(
-                "/api/chat/message",
-                json={"messages": [], "current_fields": _default_fields()},
-            )
-
-        assert res.status_code == 200
-        assert res.json()["is_complete"] is True
-
-
-# ── Edge-case tests ───────────────────────────────────────────────────────────
-
-class TestChatEdgeCases:
-    def _post(self, client, llm_raw, messages=None, fields=None):
-        mock_choice = MagicMock()
-        mock_choice.message.content = llm_raw
-        mock_response = MagicMock()
-        mock_response.choices = [mock_choice]
-
-        with (
-            patch("app.routers.chat.settings") as mock_settings,
-            patch("app.routers.chat.completion", return_value=mock_response),
-        ):
-            mock_settings.groq_api_key = "sk-test"
-            return client.post(
-                "/api/chat/message",
-                json={
-                    "messages": messages or [],
-                    "current_fields": fields or _default_fields(),
-                },
-            )
-
-    def test_markdown_fences_stripped(self, auth_client):
-        """LLM sometimes wraps JSON in ```json ... ``` — must be stripped."""
-        payload = (
-            '```json\n'
-            '{"reply": "Hi!", "fields": ' + str(_default_fields()).replace("'", '"') + ', "is_complete": false}\n'
-            '```'
-        )
-        # Build valid JSON for fields
-        import json
-        valid_payload = (
-            '```json\n'
-            '{"reply": "Hi!", "fields": ' + json.dumps(_default_fields()) + ', "is_complete": false}\n'
-            '```'
-        )
-        res = self._post(auth_client, valid_payload)
-        assert res.status_code == 200
-        assert res.json()["reply"] == "Hi!"
-
-    def test_markdown_fences_without_language_tag(self, auth_client):
-        import json
-        valid_payload = (
-            '```\n'
-            '{"reply": "Hello", "fields": ' + json.dumps(_default_fields()) + ', "is_complete": false}\n'
-            '```'
-        )
-        res = self._post(auth_client, valid_payload)
-        assert res.status_code == 200
-        assert res.json()["reply"] == "Hello"
-
-    def test_malformed_json_from_llm_returns_502(self, auth_client):
-        res = self._post(auth_client, "not valid json at all")
-        assert res.status_code == 502
-
-    def test_conversation_history_accepted(self, auth_client):
-        """Multi-turn message history should be accepted without error."""
-        import json
-        valid_payload = (
-            '{"reply": "Got it.", "fields": ' + json.dumps(_default_fields()) + ', "is_complete": false}'
-        )
-        messages = [
-            {"role": "user", "content": "evaluating a potential partnership"},
-            {"role": "assistant", "content": "Great! Who are the parties?"},
-            {"role": "user", "content": "Acme Corp and Beta Inc"},
-        ]
-        res = self._post(auth_client, valid_payload, messages=messages)
-        assert res.status_code == 200
-
-    def test_partial_fields_merged_correctly(self, auth_client):
-        """Fields already known should be preserved in the response."""
-        import json
-        pre_filled = _default_fields()
-        pre_filled["purpose"] = "evaluating a potential partnership"
-        pre_filled["governingLaw"] = "California"
-
-        fields_in_response = dict(pre_filled)
-        fields_in_response["effectiveDate"] = "2026-01-01"
-
-        payload = (
-            '{"reply": "What is the effective date?", "fields": '
-            + json.dumps(fields_in_response)
-            + ', "is_complete": false}'
-        )
-        res = self._post(auth_client, payload, fields=pre_filled)
-        assert res.status_code == 200
-        body = res.json()
-        assert body["fields"]["purpose"] == "evaluating a potential partnership"
-        assert body["fields"]["governingLaw"] == "California"
-        assert body["fields"]["effectiveDate"] == "2026-01-01"
 
     def test_response_schema_shape(self, auth_client):
-        """Response must always include reply, fields, and is_complete."""
-        import json
-        payload = (
-            '{"reply": "Test", "fields": ' + json.dumps(_default_fields()) + ', "is_complete": false}'
-        )
-        res = self._post(auth_client, payload)
+        fields = _empty_fields("mutual-nda")
+        mock_resp = _mock_llm("Test", fields)
+        res = _post_chat(auth_client, "mutual-nda", mock_resp)
+
         assert res.status_code == 200
         body = res.json()
         assert "reply" in body
         assert "fields" in body
         assert "is_complete" in body
-        # fields must contain expected sub-keys
-        assert "party1" in body["fields"]
-        assert "party2" in body["fields"]
-        assert "purpose" in body["fields"]
+
+    def test_fields_always_contain_spec_defaults(self, auth_client):
+        """LLM omitting some fields should not drop them — spec defaults fill the gap."""
+        partial_fields = {"purpose": "test"}  # LLM returns only one field
+        mock_resp = _mock_llm("Got it.", partial_fields)
+        res = _post_chat(auth_client, "mutual-nda", mock_resp)
+
+        assert res.status_code == 200
+        body_fields = res.json()["fields"]
+        # All spec fields should be present
+        for f in REGISTRY["mutual-nda"].fields:
+            assert f.key in body_fields, f"Missing field '{f.key}' in response"
+
+    def test_multi_turn_history_accepted(self, auth_client):
+        fields = _empty_fields("dpa")
+        mock_resp = _mock_llm("Got it.", fields)
+        messages = [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": "Hello! Let's get started."},
+            {"role": "user", "content": "The data subjects are our end users."},
+        ]
+        res = _post_chat(auth_client, "dpa", mock_resp, messages=messages)
+        assert res.status_code == 200
+
+
+# ── Edge-case tests ───────────────────────────────────────────────────────────
+
+class TestChatEdgeCases:
+    def test_markdown_fences_stripped(self, auth_client):
+        fields = _empty_fields("mutual-nda")
+        payload = f'```json\n{json.dumps({"reply": "Hi!", "fields": fields, "is_complete": False})}\n```'
+        mock_choice = MagicMock()
+        mock_choice.message.content = payload
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+
+        with (
+            patch("app.routers.chat.settings") as mock_settings,
+            patch("app.routers.chat.completion", return_value=mock_response),
+        ):
+            mock_settings.groq_api_key = "sk-test"
+            res = auth_client.post(
+                "/api/chat/message",
+                json={"document_type": "mutual-nda", "messages": [], "current_fields": {}},
+            )
+        assert res.status_code == 200
+        assert res.json()["reply"] == "Hi!"
+
+    def test_malformed_json_returns_502(self, auth_client):
+        mock_choice = MagicMock()
+        mock_choice.message.content = "not valid json"
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+
+        with (
+            patch("app.routers.chat.settings") as mock_settings,
+            patch("app.routers.chat.completion", return_value=mock_response),
+        ):
+            mock_settings.groq_api_key = "sk-test"
+            res = auth_client.post(
+                "/api/chat/message",
+                json={"document_type": "mutual-nda", "messages": [], "current_fields": {}},
+            )
+        assert res.status_code == 502
+
+    def test_all_document_types_accepted(self, auth_client):
+        """Every document type in the registry must be accepted by the endpoint."""
+        for doc_type, spec in REGISTRY.items():
+            fields = spec.initial_fields()
+            mock_resp = _mock_llm("Hello!", fields)
+            res = _post_chat(auth_client, doc_type, mock_resp)
+            assert res.status_code == 200, f"Document type '{doc_type}' returned {res.status_code}"
