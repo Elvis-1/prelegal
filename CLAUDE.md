@@ -10,17 +10,32 @@ The available documents are covered in the catalog.json file in the project root
 
 ## Current Status
 
-**PL-5 in progress (branch `feat/PL-5-ai-chat`, PR not yet submitted).** Built on the PL-4 foundation:
+**PL-6 complete. All features merged to `main`.** Foundation built across PL-3 through PL-6:
 - FastAPI backend (`backend/`) — uv project, SQLite auth (signup/login with JWT), DB created fresh each container start
 - Next.js frontend (`frontend/`) — static export served by FastAPI at http://localhost:8000
 - Docker — multi-stage `Dockerfile` + `docker-compose.yml`
 - Scripts — `scripts/start-mac.sh` / `scripts/stop-mac.sh` (and Linux/Windows equivalents)
 
-**PL-5 feature:** Replaced the Mutual NDA form with a freeform AI chat interface (`NDAChat` component). The AI collects all NDA fields through natural conversation and populates the live document preview as fields are confirmed. Backend chat endpoint at `POST /api/chat/message` uses LiteLLM → OpenRouter → Cerebras (`openrouter/openai/gpt-oss-120b`) with structured JSON output.
+**PL-5 feature (done):** Replaced the Mutual NDA form with a freeform AI chat interface. The AI collects NDA fields through natural conversation and populates a live document preview.
 
-**Scope note:** PL-5 covers Mutual NDA only. The catalog lists 12 document types but only the Mutual NDA is wired end-to-end at this stage.
+**PL-6 feature (done):** Expanded to all 11 supported document types. After login, users see a document selector (card grid with search). Selecting a type opens the split-screen chat+preview workspace. The AI is guided by a per-document field schema. The backend returns 400 for unsupported document types and instructs the AI to suggest the closest supported alternative.
 
-**Test suite:** 25 tests (unit + integration) covering auth, chat endpoint, field extraction, edge cases (markdown fences, malformed LLM output, multi-turn history). All passing.
+**AI provider:** LiteLLM → Groq (`groq/llama-3.3-70b-versatile`). API key `GROQ_API_KEY` in `.env` and `docker-compose.yml`. JSON mode (`response_format: {"type": "json_object"}`) used for structured output.
+
+**Key backend files:**
+- `backend/app/documents.py` — registry of all 11 document types with typed field schemas
+- `backend/app/routers/chat.py` — generic chat endpoint driven by the registry
+- `backend/app/routers/catalog.py` — `GET /api/catalog` listing supported document types
+- `backend/app/routers/auth.py` — signup/login returning JWT
+
+**Key frontend files:**
+- `frontend/src/components/DocSelector.tsx` — document type selector (card grid + search)
+- `frontend/src/components/DocChat.tsx` — generic AI chat component
+- `frontend/src/components/DocPreview.tsx` — live field-summary preview with progress bar
+- `frontend/src/app/page.tsx` — auth guard + selector → workspace flow
+- `frontend/src/app/login/page.tsx` — sign in / create account
+
+**Test suite:** 33 tests (unit + integration) covering auth, document registry integrity, catalog endpoint, all 11 document types, edge cases. All passing.
 
 ## Development process
 
@@ -32,9 +47,9 @@ When instructed to build a feature:
 
 ## AI design
 
-When writing code to make calls to LLMs, use your Cerebras skill to use LiteLLM via OpenRouter to the `openrouter/openai/gpt-oss-120b` model with Cerebras as the inference provider. You should use Structured Outputs so that you can interpret the results and populate fields in the legal document.
+When writing code to make calls to LLMs, use LiteLLM with Groq as the inference provider (`groq/llama-3.3-70b-versatile`). Use `response_format={"type": "json_object"}` (Groq JSON mode) so the model returns structured output that can be parsed to populate document fields.
 
-There is an OPENROUTER_API_KEY in the .env file in the project root.
+There is a `GROQ_API_KEY` in the `.env` file in the project root. This must also be set in `docker-compose.yml` under `environment`.
 
 ## Technical design
 
