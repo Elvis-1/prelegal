@@ -1,0 +1,8 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:////app/data/prelegal.db
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
