@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Print: show only the NDA document, hide all chrome */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #nda-document,
+  #nda-document * {
+    visibility: visible;
+  }
+  #nda-document {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0.75in !important;
+  }
+}
