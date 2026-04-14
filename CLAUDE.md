@@ -10,14 +10,17 @@ The available documents are covered in the catalog.json file in the project root
 
 ## Current Status
 
-**PL-4 complete (merged via PR #5).** The V1 technical foundation is in place:
+**PL-5 in progress (branch `feat/PL-5-ai-chat`, PR not yet submitted).** Built on the PL-4 foundation:
 - FastAPI backend (`backend/`) — uv project, SQLite auth (signup/login with JWT), DB created fresh each container start
 - Next.js frontend (`frontend/`) — static export served by FastAPI at http://localhost:8000
 - Docker — multi-stage `Dockerfile` + `docker-compose.yml`
 - Scripts — `scripts/start-mac.sh` / `scripts/stop-mac.sh` (and Linux/Windows equivalents)
-- Product feature implemented so far: Mutual NDA form + live preview (PL-3)
 
-The current implementation supports all 11 document types via AI chat with full user authentication and document persistence.
+**PL-5 feature:** Replaced the Mutual NDA form with a freeform AI chat interface (`NDAChat` component). The AI collects all NDA fields through natural conversation and populates the live document preview as fields are confirmed. Backend chat endpoint at `POST /api/chat/message` uses LiteLLM → OpenRouter → Cerebras (`openrouter/openai/gpt-oss-120b`) with structured JSON output.
+
+**Scope note:** PL-5 covers Mutual NDA only. The catalog lists 12 document types but only the Mutual NDA is wired end-to-end at this stage.
+
+**Test suite:** 25 tests (unit + integration) covering auth, chat endpoint, field extraction, edge cases (markdown fences, malformed LLM output, multi-turn history). All passing.
 
 ## Development process
 

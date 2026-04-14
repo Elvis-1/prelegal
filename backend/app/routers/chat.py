@@ -14,8 +14,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-MODEL = "openrouter/openai/gpt-oss-120b"
-EXTRA_BODY = {"provider": {"order": ["cerebras"]}}
+MODEL = "groq/llama-3.3-70b-versatile"
 
 SYSTEM_PROMPT = """You are a friendly legal assistant helping users fill in a Mutual Non-Disclosure Agreement (MNDA).
 
@@ -123,7 +122,7 @@ def _dict_to_fields(data: dict) -> NDAFields:
 
 @router.post("/message", response_model=ChatResponse)
 def chat_message(request: ChatRequest, _user=Depends(get_current_user)):
-    if not settings.openrouter_api_key:
+    if not settings.groq_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="AI service not configured",
@@ -145,11 +144,8 @@ def chat_message(request: ChatRequest, _user=Depends(get_current_user)):
         response = completion(
             model=MODEL,
             messages=messages,
-            response_format=LLMResponse,
-            reasoning_effort="low",
-            extra_body=EXTRA_BODY,
-            api_key=settings.openrouter_api_key,
-            api_base="https://openrouter.ai/api/v1",
+            response_format={"type": "json_object"},
+            api_key=settings.groq_api_key,
         )
         raw = response.choices[0].message.content
         # Strip markdown code fences in case the model wraps its output

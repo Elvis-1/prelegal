@@ -7,3 +7,4 @@ services:
       - DATABASE_URL=sqlite:////app/data/prelegal.db
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
