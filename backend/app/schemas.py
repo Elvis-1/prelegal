@@ -1,5 +1,3 @@
-from typing import Optional
-
 from pydantic import BaseModel, EmailStr
 
 
@@ -32,33 +30,21 @@ class ChatMessage(BaseModel):
     content: str
 
 
-class PartyFields(BaseModel):
-    company: str = ""
-    name: str = ""
-    title: str = ""
-    noticeAddress: str = ""
-
-
-class NDAFields(BaseModel):
-    purpose: str = ""
-    effectiveDate: str = ""
-    mndaTermType: str = "expires"
-    mndaTermYears: str = "1"
-    confidentialityTermType: str = "years"
-    confidentialityTermYears: str = "1"
-    governingLaw: str = ""
-    jurisdiction: str = ""
-    modifications: str = ""
-    party1: PartyFields = PartyFields()
-    party2: PartyFields = PartyFields()
-
-
 class ChatRequest(BaseModel):
+    document_type: str
     messages: list[ChatMessage]
-    current_fields: NDAFields
+    current_fields: dict[str, str]
 
 
 class ChatResponse(BaseModel):
     reply: str
-    fields: NDAFields
+    fields: dict[str, str]
     is_complete: bool
+
+
+# Catalog schema
+
+class CatalogEntry(BaseModel):
+    key: str
+    name: str
+    description: str
